@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Counter</title>
+</head>
+<body>
+      <button id="inc">+</button>
+      <button id="dec">-</button>
+      <p id="val">0</p>
+
+  <script>
+   const inc=document.getElementById("inc");
+   const dec=document.getElementById("dec");
+   const val=document.getElementById("val");
+
+   function counter(){
+    let count=0;
+
+    return{
+      increment(){
+        count=count+1;
+      },
+      decrement(){
+        count=count-1;
+      },
+      getValue(){
+       return count;
+      }
+    }
+   }
+
+   const counterApp=counter();
+
+   inc.addEventListener("click",()=>{
+    counterApp.increment();
+    val.textContent=counterApp.getValue();
+   })
+
+   dec.addEventListener("click",()=>{
+    counterApp.decrement();
+    val.textContent=counterApp.getValue();
+   });
+  </script>
+  
+</body>
+</html>
