@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Hoisting-Example</title>
+  </head>
+  <body>
+    <div id="root" style="margin-left: 50vh">
+      <h1>Hoisting Example</h1>
+       <div id="console">
+
+       </div>
+      <button id="Hoisting">Test Hoisting</button>
+    </div>
+
+    <script>
+      const button = document.getElementById("Hoisting");
+      const consoleDiv = document.getElementById("console");
+      function testHoisting() {
+       
+        consoleDiv.innerHTML = ""; 
+        const show = document.createElement("div");
+        show.innerText="hoisted : "+ myVar;
+        var myVar = " hoisted!";
+        consoleDiv.appendChild(show);
+
+        // let 
+
+        const show2 = document.createElement("div");
+        try {
+          show2.innerText="not hoisted : "+ myVar2;
+        } catch (error) {
+          show2.innerText="not hoisted : Error: " + error.message;
+        }
+        let myVar2 = "not hoisted!";
+        consoleDiv.appendChild(show2);
+
+        //const
+        const show3 = document.createElement("div");
+        try {
+          show3.innerText="not hoisted : "+ myVar3;
+        } catch (error) {
+          show3.innerText="not hoisted : Error: " + error.message;
+        }
+        const myVar3 = " not hoisted";
+        consoleDiv.appendChild(show3);
+      }
+    
+
+      button.addEventListener("click", testHoisting);
+    </script>
+  </body>
+</html>
