@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>ShopQuest</title>
+<style>
+body { font-family: Arial; margin: 20px; }
+.products { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+.card { border: 1px solid #ccc; padding: 10px; }
+button { cursor: pointer; }
+.cart, .panel { margin-top: 20px; border: 1px solid #aaa; padding: 10px; }
+.cached { color: red; font-weight: bold; }
+</style>
+</head>
+<body>
+
+<h1>ShopQuest</h1>
+
+<div>
+  <input id="search" placeholder="Search" />
+  <select id="category"></select>
+  <select id="sort">
+    <option value="">Sort</option>
+    <option value="price-asc">Price ↑</option>
+  </select>
+  <button onclick="applyFilters()">Apply</button>
+</div>
+
+<p id="cacheLabel"></p>
+
+<div class="products" id="products"></div>
+
+<h3>Cart</h3>
+<div class="cart" id="cart"></div>
+<button onclick="checkout()">Checkout</button>
+
+<h3>Auth</h3>
+<input id="user" placeholder="username">
+<input id="pass" placeholder="password" type="password">
+<button onclick="login()">Login</button>
+<button onclick="logout()">Logout</button>
+<p id="authStatus"></p>
+
+<h3>Developer Panel</h3>
+<div class="panel" id="devPanel"></div>
+
+<script>
+const API = "https://fakestoreapi.com";
+let allProducts = [];
+let filtered = [];
+
+function logRequest(url, method, status, start, source) {
+  const logs = JSON.parse(localStorage.getItem("apiLogs") || "[]");
+  logs.unshift({
+    url, method, status,
+    duration: Math.round(performance.now() - start),
+    source
+  });
+  localStorage.setItem("apiLogs", JSON.stringify(logs.slice(0,5)));
+  renderLogs();
+}
+
+function fetchWithTimeout(url, options = {}, timeout = 5000) {
+  return Promise.race([
+    fetch(url, options),
+    new Promise((_, reject) => setTimeout(() => reject("timeout"), timeout))
+  ]);
+}
+
+function fetchWithRetry(url, options = {}, retries = 2) {
+  const start = performance.now();
+  return fetchWithTimeout(url, options)
+    .then(r => {
+      logRequest(url, options.method || "GET", r.status, start, "network");
+      if (!r.ok) throw r.status;
+      return r.json();
+    })
+    .catch(e => retries ? fetchWithRetry(url, options, retries - 1) : Promise.reject(e));
+}
+
+function loadInitial() {
+  Promise.all([
+    fetchWithRetry(API + "/products"),
+    fetchWithRetry(API + "/products/categories")
+  ])
+  .then(([products, cats]) => {
+    allProducts = products;
+    localStorage.setItem("productsCache", JSON.stringify(products));
+    renderCategories(cats);
+    applyFilters();
+  })
+  .catch(() => {
+    const cached = JSON.parse(localStorage.getItem("productsCache") || "[]");
+    document.getElementById("cacheLabel").innerHTML = "<span class='cached'>Cached Data</span>";
+    allProducts = cached;
+    applyFilters();
+  });
+}
+
+function renderCategories(cats) {
+  const sel = document.getElementById("category");
+  sel.innerHTML = `<option value="">All</option>` +
+    cats.map(c => `<option>${c}</option>`).join("");
+}
+
+function applyFilters() {
+  const s = search.value.toLowerCase();
+  const c = category.value;
+  const sort = document.getElementById("sort").value;
+
+  if (s) saveSearch(s);
+
+  filtered = allProducts.filter(p =>
+    (!s || p.title.toLowerCase().includes(s)) &&
+    (!c || p.category === c)
+  );
+
+  if (sort === "price-asc") filtered.sort((a,b)=>a.price-b.price);
+  renderProducts(filtered);
+}
+
+function renderProducts(list) {
+  products.innerHTML = list.map(p => `
+    <div class="card">
+      <h4>${p.title}</h4>
+      <p>$${p.price}</p>
+      <button onclick="addToCart(${p.id})">Add</button>
+      <button onclick="details(${p.id})">Details</button>
+    </div>`).join("");
+}
+
+function details(id) {
+  fetchWithRetry(API + "/products/" + id)
+    .then(p => alert(p.description))
+    .catch(()=>alert("Failed"));
+}
+
+function getCart() {
+  return JSON.parse(localStorage.getItem("cart") || "[]");
+}
+
+function addToCart(id) {
+  const cart = getCart();
+  cart.push(allProducts.find(p => p.id === id));
+  localStorage.setItem("cart", JSON.stringify(cart));
+  renderCart();
+}
+
+function renderCart() {
+  cart.innerHTML = getCart().map(p => p.title).join("<br>");
+}
+
+function login() {
+  fetchWithRetry(API + "/auth/login", {
+    method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({
+      username:user.value,
+      password:pass.value
+    })
+  }).then(d=>{
+    localStorage.setItem("token", d.token);
+    authStatus.innerText = "Logged in";
+  });
+}
+
+function logout() {
+  localStorage.removeItem("token");
+  authStatus.innerText = "Logged out";
+}
+
+function checkout() {
+  if (!localStorage.getItem("token")) return alert("Login required");
+  fetchWithRetry(API + "/carts", {
+    method:"POST",
+    headers:{
+      "Content-Type":"application/json",
+      "Authorization":"Bearer " + localStorage.getItem("token")
+    },
+    body:JSON.stringify({
+      userId:1,
+      date:new Date(),
+      products:getCart().map(p=>({productId:p.id,quantity:1}))
+    })
+  }).then(()=>{
+    alert("Order placed");
+    localStorage.removeItem("cart");
+    renderCart();
+  });
+}
+
+function saveSearch(term) {
+  let h = JSON.parse(localStorage.getItem("searchHistory") || "[]");
+  h = [term, ...h.filter(x=>x!==term)].slice(0,5);
+  localStorage.setItem("searchHistory", JSON.stringify(h));
+}
+
+function renderLogs() {
+  const logs = JSON.parse(localStorage.getItem("apiLogs") || "[]");
+  devPanel.innerHTML = logs.map(l =>
+    `${l.method} ${l.url} | ${l.status} | ${l.duration}ms | ${l.source}`
+  ).join("<br>");
+}
+
+loadInitial();
+renderCart();
+renderLogs();
+</script>
+</body>
+</html>
