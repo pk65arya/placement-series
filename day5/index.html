@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>PostSphere</title>
+<style>
+body { font-family: Arial, sans-serif; margin: 20px; }
+header { display: flex; gap: 10px; align-items: center; }
+.feed { max-width: 800px; margin-top: 20px; }
+.post { border: 1px solid #ccc; padding: 10px; margin-bottom: 10px; cursor: pointer; }
+.highlight { background: #fff7cc; }
+.group { background: #f0f0f0; padding: 5px; font-weight: bold; }
+.pagination button { margin: 5px; }
+.panel { border: 1px solid #aaa; padding: 10px; margin-top: 10px; }
+.hidden { display: none; }
+</style>
+</head>
+<body>
+
+<h1>PostSphere</h1>
+
+<header>
+  <input id="search" placeholder="Search posts..." />
+  <select id="mode">
+    <option value="title">Title only</option>
+    <option value="full">Full text</option>
+    <option value="fuzzy">Fuzzy</option>
+  </select>
+</header>
+
+<div class="panel">
+  <h3>Feed Transformers</h3>
+  <label><input type="checkbox" id="longPosts"> Highlight long posts (>120 chars)</label><br>
+  <label><input type="checkbox" id="hideUser"> Hide posts by User 1</label><br>
+  <label><input type="checkbox" id="groupUser"> Group by user</label><br>
+  <label><input type="checkbox" id="sortComments"> Sort by comment count</label>
+</div>
+
+<div class="pagination">
+  <button onclick="prevPage()">Prev</button>
+  <span id="pageInfo"></span>
+  <button onclick="nextPage()">Next</button>
+</div>
+
+<div id="status"></div>
+<div class="feed" id="feed"></div>
+
+<div id="detail" class="panel hidden"></div>
+
+<script>
+const API = "https://jsonplaceholder.typicode.com";
+let page = 1;
+const limit = 10;
+let allUsers = [];
+let allComments = [];
+let rawPosts = [];
+let debounceTimer = null;
+
+
+
+async function fetchBaseData() {
+  try {
+    status.textContent = "Loading...";
+    const [users, comments] = await Promise.all([
+      fetch(API + "/users").then(r => r.json()),
+      fetch(API + "/comments").then(r => r.json())
+    ]);
+    allUsers = users;
+    allComments = comments;
+    loadPosts();
+  } catch {
+    status.textContent = "Failed to load data.";
+  }
+}
+
+async function loadPosts() {
+  try {
+    status.textContent = "Loading posts...";
+    const res = await fetch(`${API}/posts?_page=${page}&_limit=${limit}`);
+    rawPosts = await res.json();
+    status.textContent = "";
+    render();
+  } catch {
+    status.textContent = "Error loading posts.";
+  }
+}
+
+
+
+function searchFilter(posts) {
+  const q = search.value.toLowerCase();
+  if (!q) return posts;
+
+  return posts.filter(p => {
+    const user = allUsers.find(u => u.id === p.userId)?.name || "";
+    if (mode.value === "title") return p.title.includes(q);
+    if (mode.value === "full")
+      return (p.title + p.body + user).toLowerCase().includes(q);
+    // fuzzy
+    return q.split("").every(c =>
+      (p.title + p.body + user).toLowerCase().includes(c)
+    );
+  });
+}
+
+search.oninput = () => {
+  clearTimeout(debounceTimer);
+  debounceTimer = setTimeout(render, 300);
+};
+
+
+
+function applyTransformers(posts) {
+  let pipeline = [];
+
+  if (hideUser.checked) {
+    pipeline.push(p => p.filter(x => x.userId !== 1));
+  }
+
+  if (sortComments.checked) {
+    pipeline.push(p =>
+      [...p].sort((a, b) =>
+        countComments(b.id) - countComments(a.id)
+      )
+    );
+  }
+
+  pipeline.push(p => p.map(post => ({
+    ...post,
+    long: post.body.length > 120
+  })));
+
+  return pipeline.reduce((acc, fn) => fn(acc), posts);
+}
+
+
+
+function render() {
+  let posts = searchFilter(rawPosts);
+  posts = applyTransformers(posts);
+
+  feed.innerHTML = "";
+
+  if (groupUser.checked) {
+    const grouped = posts.reduce((acc, p) => {
+      acc[p.userId] = acc[p.userId] || [];
+      acc[p.userId].push(p);
+      return acc;
+    }, {});
+    Object.entries(grouped).forEach(([uid, list]) => {
+      const user = allUsers.find(u => u.id == uid);
+      feed.innerHTML += `<div class="group">${user.name}</div>`;
+      list.forEach(renderPost);
+    });
+  } else {
+    posts.forEach(renderPost);
+  }
+
+  pageInfo.textContent = `Page ${page}`;
+}
+
+function renderPost(p) {
+  feed.innerHTML += `
+    <div class="post ${longPosts.checked && p.long ? "highlight" : ""}"
+         onclick="openDetail(${p.id})">
+      <h4>${p.title}</h4>
+      <p>${p.body.slice(0, 100)}...</p>
+    </div>
+  `;
+}
+
+
+
+async function openDetail(id) {
+  detail.classList.remove("hidden");
+  detail.textContent = "Loading...";
+
+  const post = rawPosts.find(p => p.id === id);
+  const [user, comments] = await Promise.all([
+    fetch(API + "/users/" + post.userId).then(r => r.json()),
+    fetch(API + "/comments?postId=" + id).then(r => r.json())
+  ]);
+
+  detail.innerHTML = `
+    <h3>${post.title}</h3>
+    <p><strong>${user.name}</strong></p>
+    <p>${post.body}</p>
+    <h4>Comments</h4>
+    ${comments.map(c => `<p>• ${c.body}</p>`).join("")}
+    <button onclick="detail.classList.add('hidden')">Close</button>
+  `;
+}
+
+
+
+function countComments(postId) {
+  return allComments.filter(c => c.postId === postId).length;
+}
+
+function nextPage() { page++; loadPosts(); }
+function prevPage() { if (page > 1) page--; loadPosts(); }
+
+
+
+document.querySelectorAll("input,select").forEach(el => el.onchange = render);
+fetchBaseData();
+</script>
+
+</body>
+</html>
